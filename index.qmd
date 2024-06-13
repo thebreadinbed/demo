@@ -1,0 +1,131 @@
+---
+title: "Études de l'impact des pistes cyclables sur l'offre de restauration"
+subtitle: "Exemple de structuration des données pour l'année d'implantation (2005) des pistes cyclables à Montréal"
+author: Jia Yu, 2024-06-09 
+format: html
+editor: visual
+bibliography: references.bib
+---
+
+# Contexte de réalisation
+
+Le présent projet propose d’étudier l’impact de l’intégration des aménagements urbains sur l’évolution des structures commerciales des quartiers centraux de Montréal au cours des vingt dernières années. Il vise à déterminer dans quelle mesure ces aménagements sont des facteurs qui contribuent au renouvèlement ou au déclin de ces espaces. L'objectif spécifique de ce rapport tente de répondre à la question suivante :
+
+-   Comment l’offre de restauration (augmentation/diminution) a-t-elle évolué à la suite de **l’implantation d’aménagements cyclables sur l'ile de Montréal entre 2005 et 2015.**
+
+**Pertinence et bref revue de la litérature**
+
+Dans les études existantes portant sur l'impact des infrastructures cyclables et piétonnes, l'attention porte principalement sur les mesures directes de la performance commerciale. Ces mesures tient en compte les types de consommation en fonction du mode de déplacement utilisé (voiture versus vélo/marche) et la performance des commerces individuels est évaluée à travers des indicateurs tels que les ventes, la fréquentation moyenne, les dépenses moyennes par visiteur, l'emploi et le taux d’occupation des commerces [\@poirier2018; \@popovich2014](Poirier,%202018;%20Popovich%20et%20Handy,%202014;%20Volker%20et%20Handy,%202021).
+
+Cependant, ces analyses négligent souvent l’effet des aménagements sur le dynamisme commercial à l'échelle du quartier, une littérature portée par les sociologues et géographes urbains.  En effet, le rôle principal des commerces de proximité consiste davantage à favoriser la cohésion sociale [@oldenburg1999; @zukin2010] L'intérêt de cet angle d'analyse est de quantifier les transformations commerciales liés au changement de la composition résidentielle des quartiers centraux. Une population plus aisée qui s’installe dans un quartier populaire fait augmenter le coût d’exploitation pour une petite entreprise locale [@porter1999] En conséquence, l’offre commerciale change et ne répond plus à la demande des résidents de longue date [@meltzer2016] L'apparition de cafés, de restaurants, de magasin d'alimentation sont au centre des mécanismes de la spécialisation et de la montée en gamme. La question est à savoir si l'aménagement de pistes cyclables favorise une certaine homogénéisation de l'offre sur les artères.
+
+### **Hypothèse de recherche**
+
+Pour ce rapport, je me suis intéréssé.e spécifiquement à la restauration. Mon hypothèse de recherche est que l'offre de restauration augmente suite à l'implantation d'une piste cyclable, mais que l'effet de cette augmentation stagne après quelques années.
+
+## Péparation de l'environnement de travail
+
+```{r, message=FALSE, warning=FALSE}
+rm(list = ls())
+# LoDA the sf package
+library(sf)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(spatstat)
+library(tidyr)
+library(haven)
+library(knitr)
+library(DT)
+
+setwd("E:/EUR8467/Projet_ETE/")
+```
+
+### Préparer les données de structuration
+
+```{r, results='hide', message=FALSE}
+load("E:/EUR8467/Projet_ETE2/BIKE_REQ_STRUCTURATION/velo_years_list_buffered.rda") # liste contenant des df individuels de pistes cyclables entre 2005 et 2020 
+load("E:/EUR8467/Projet_ETE2/BIKE_REQ_STRUCTURATION/resto_years_list.rda") # liste contenant des df individuels de données de restaurants entre 2005 et 2020 
+Quartiers <- st_read("E:/EUR8467/Projet_ETE2/DATA/StatCAN_2006_2016/Quartiers_ILE.shp") # données des quartiers 
+```
+
+## Panel Event Study
+
+Le principe d'une étude d'impact par panel est de suivre l’évolution sur une période déterminée (ici, j’ai choisi une période de 10 ans, ce qui équivaut à 5 ans avant l’année d’impact et 5 ans après l’année d’impact) sur une échelle géographique déterminée. Dans le cas de ce rapport, il s’agit d’hexagones (quadra) de 250 mètres sur 250 mètres.
+
+Pour créer le panel, il faut tout d’abord s’assurer d’avoir le même nombre d’observations par hexagone. Il faut donc s’assurer que les observations qui n’existent pas restent dans la base de données pour s’assurer d’avoir un panel balancé. Concrètement, ça veut dire que :
+
+1.  s’il n’y a aucun restaurant dans un quadra, alors la variable count_resto = 0
+
+2.  s’il y a des trous dans les années d’implantation de restaurant, alors ajouté une variable d’effets fixes temporels (var = resto_fixed_time) qui est la variable annuelle du panel ou l’année « d’observation » du panel.  
+
+    ![Cartographie des variables dépendantes et de l'échelle d'observation du panel](images/clipboard-859016999.png)
+
+# Structuration
+
+## 1. Création de l'échelle d'observation des variables dépendantes
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+### Step 1: Préparer les quadrats ###
+# Given the area (A) of the hexagon: A = 250 m * 250 m = 62500 square meters
+# Try 500 * 500 = 250 000
+# Try 1000 * 1000 = 1 000 000
+
+area <- 62500
+side_length <- sqrt((2 * area) / (3 * sqrt(3)))
+
+# Create hexagonal grid
+quadra_hexa <- st_make_grid(
+  Quartiers, # This creates a grid encompassing our spatial object Quartiers
+  cellsize = side_length, # for hexagonal cells
+  what = "polygons",
+  square = FALSE
+)
+
+quadra_hexa <- st_as_sf(
+  data.frame(OID = 1:length(quadra_hexa)),
+  geometry = quadra_hexa,
+  crs = st_crs(Quartiers)
+)
+
+# Keep only hexagons that intersect with Quartiers
+quadra_hexa <- subset(
+  quadra_hexa, 
+  lengths(st_intersects(quadra_hexa, Quartiers)) > 0
+)
+
+# save(quadra_hexa_velo_years_list, file = "R/BIKE_REQ_STRUCTURATION/Partial_results_checking/quadra_hexa_velo_years_list.rda")
+```
+
+**Données des pistes cyclables** : a) effectuer l’intersection entre les quadras_hexas et les données des pistes cyclables, b) ajouter la variable current_year_t, qui correspond à l’année d’implantation de la piste.
+
+```{r, message=FALSE, warning=FALSE}
+# Initialize a list to store the results for each year
+quadra_hexa_velo_years_list <- list()
+
+# Process each year separately using the same grid
+for (year in names(velo_years_list_buffered)) {
+  cat("Processing year:", year, "\n")
+  
+  # Get the data for the current year
+  year_data <- velo_years_list_buffered[[year]]
+  
+  # Perform the intersection between the bike paths for the current year and hexagons
+  sp_intersection <- st_intersection(quadra_hexa, year_data)  %>%
+    st_drop_geometry() %>% 
+    group_by(OID) %>%
+    summarise(id_cycl_count = n_distinct(id_cycl), .groups = 'drop') %>% #Group by OID and count the number of unique id_cycl per OID
+    mutate(current_year_t = year) 
+   
+  sp_intersection_joined <- left_join(quadra_hexa, sp_intersection, by = "OID") %>% ## Join it back to get the geometry back
+    arrange(id_cycl_count) ## order OID
+  # Store the result in the list
+  quadra_hexa_velo_years_list[[year]] <- sp_intersection_joined
+}
+
+# Display the resulting dataframe
+datatable(
+  quadra_hexa_velo_years_list[[1]],  # display the first df (year 2005) of the larger list 
+  options = list(pageLength = 5, autoWidth = TRUE)  # Customize options as needed
+)
+```
